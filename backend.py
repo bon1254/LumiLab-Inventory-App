@@ -8,7 +8,7 @@ import io
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
 
-@st.cache_resource
+@st.cache_resource(ttl=600)
 def init_services():
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
