@@ -27,23 +27,19 @@ for i, ws in enumerate(display_worksheets):
             input_data = {}
             manual_data = {}
             
+            # 1. 乾淨清爽的下拉選單 (不再出現 ✏️手動輸入 選項)
             for col in header:
                 if col == "照片連結": continue
                 elif col == "品項名稱":
-                    input_data[col] = st.selectbox(f"📦 {col}", options=ITEM_OPTIONS + ["✏️ 手動輸入新選項..."])
-                    manual_data[col] = st.text_input(f"✍️ 新{col}:", key=f"mi_{ws.id}")
-                elif col == "品牌" or col == "品牌名稱":
-                    input_data[col] = st.selectbox(f"🏷️ {col}", options=BRAND_OPTIONS + ["✏️ 手動輸入新選項..."])
-                    manual_data[col] = st.text_input(f"✍️ 新{col}:", key=f"mb_{ws.id}")
+                    input_data[col] = st.selectbox(f"📦 {col}", options=ITEM_OPTIONS)
+                elif col in ["品牌", "品牌名稱"]:
+                    input_data[col] = st.selectbox(f"🏷️ {col}", options=BRAND_OPTIONS)
                 elif col == "存放區域":
-                    input_data[col] = st.selectbox(f"🗃️ {col}", options=AREA_OPTIONS + ["✏️ 手動輸入新選項..."])
-                    manual_data[col] = st.text_input(f"✍️ 新{col}:", key=f"ma_{ws.id}")
+                    input_data[col] = st.selectbox(f"🗃️ {col}", options=AREA_OPTIONS)
                 elif col == "存放所在位置":
-                    input_data[col] = st.selectbox(f"📍 {col}", options=LOC_OPTIONS + ["✏️ 手動輸入新選項..."])
-                    manual_data[col] = st.text_input(f"✍️ 新{col}:", key=f"ml_{ws.id}")
-                elif "狀態" in col:
-                    input_data[col] = st.selectbox(f"🚦 {col}", options=STATUS_OPTIONS + ["✏️ 手動輸入新選項..."])
-                    manual_data[col] = st.text_input(f"✍️ 新{col}:", key=f"ms_{ws.id}")
+                    input_data[col] = st.selectbox(f"📍 {col}", options=LOC_OPTIONS)
+                elif col in ["狀態", "設備狀態"]:
+                    input_data[col] = st.selectbox(f"🚦 {col}", options=STATUS_OPTIONS)
                 elif col == "數量":
                     input_data[col] = st.number_input(f"🔢 {col}", min_value=0, value=1, step=1)
                 elif "備註" in col:
@@ -52,22 +48,33 @@ for i, ws in enumerate(display_worksheets):
                 else:
                     input_data[col] = st.text_input(f"✍️ {col}")
 
+            # 2. 隱藏式的手動輸入區塊 (點開才看得到)
+            with st.expander("➕ 選單裡沒有？點我手動輸入新品項 / 品牌..."):
+                st.caption("💡 只要在這裡打字，系統就會優先儲存你打的內容，並自動加入未來的選單中！")
+                if "品項名稱" in header: manual_data["品項名稱"] = st.text_input("✍️ 新品項名稱:", key=f"m_item_{ws.id}")
+                if "品牌" in header: manual_data["品牌"] = st.text_input("✍️ 新品牌:", key=f"m_brand_{ws.id}")
+                if "存放區域" in header: manual_data["存放區域"] = st.text_input("✍️ 新存放區域:", key=f"m_area_{ws.id}")
+                if "存放所在位置" in header: manual_data["存放所在位置"] = st.text_input("✍️ 新存放所在位置:", key=f"m_loc_{ws.id}")
+
             st.write("---")
             photo = st.camera_input("📷 拍下照片 (選填)")
             submit = st.form_submit_button("🚀 一鍵儲存並上傳", use_container_width=True)
 
             if submit:
                 with st.spinner("雲端處理中..."):
+                    
+                    # 自動判斷：手動輸入有字就用手動的，沒字就用下拉選單的
                     def get_final(col_name):
-                        return manual_data.get(col_name, "").strip() if input_data.get(col_name) == "✏️ 手動輸入新選項..." else input_data.get(col_name, "")
+                        manual_val = manual_data.get(col_name, "").strip()
+                        return manual_val if manual_val else input_data.get(col_name, "")
                     
                     final_item = get_final("品項名稱") or "未命名品項"
-                    final_brand = get_final("品牌") or get_final("品牌名稱")
+                    final_brand = get_final("品牌")
                     final_area = get_final("存放區域")
                     final_loc = get_final("存放所在位置")
                     
                     status_key = "設備狀態" if "設備狀態" in input_data else ("狀態" if "狀態" in input_data else "")
-                    final_status = get_final(status_key) if status_key else ""
+                    final_status = input_data.get(status_key, "") # 狀態通常不手動新增
 
                     # 寫入新選項到設定表
                     needs_update = False
@@ -75,7 +82,6 @@ for i, ws in enumerate(display_worksheets):
                     if final_brand and final_brand not in BRAND_OPTIONS: BRAND_OPTIONS.append(final_brand); needs_update = True
                     if final_area and final_area not in AREA_OPTIONS: AREA_OPTIONS.append(final_area); needs_update = True
                     if final_loc and final_loc not in LOC_OPTIONS: LOC_OPTIONS.append(final_loc); needs_update = True
-                    if final_status and final_status not in STATUS_OPTIONS: STATUS_OPTIONS.append(final_status); needs_update = True
                         
                     if needs_update:
                         mlen = max(len(ITEM_OPTIONS), len(BRAND_OPTIONS), len(AREA_OPTIONS), len(LOC_OPTIONS), len(STATUS_OPTIONS))
