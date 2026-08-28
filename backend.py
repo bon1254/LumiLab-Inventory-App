@@ -1,21 +1,20 @@
 import streamlit as st
 import pandas as pd
 import gspread
-from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
 import io
+from google.cloud import storage
+from google.oauth2.service_account import Credentials
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
 
 @st.cache_resource(ttl=600)
 def init_services():
+    # 初始化 Google 試算表
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
     gc = gspread.authorize(creds)
     sh = gc.open_by_key(st.secrets["spreadsheet_id"])
-    drive_service = build('drive', 'v3', credentials=creds)
-    return sh, drive_service
+    return sh, None # 回傳 None 是為了相容舊程式碼的解構
 
 def add_watermark(image_bytes):
     img = Image.open(io.BytesIO(image_bytes))
@@ -37,24 +36,20 @@ def add_watermark(image_bytes):
     img.save(output, format="JPEG", quality=85)
     return output.getvalue()
 
-def get_or_create_subfolder(drive_service, parent_id, folder_name):
-    query = f"'{parent_id}' in parents and name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-    response = drive_service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
-    files = response.get('files', [])
-    if files: return files[0].get('id')
-    folder = drive_service.files().create(body={'name': folder_name, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [parent_id]}, fields='id').execute()
-    return folder.get('id')
-
 def upload_image_to_drive(file_bytes, filename, category_name):
     try:
-        sh, drive_service = init_services()
         processed_bytes = add_watermark(file_bytes)
-        main_folder_id = st.secrets["drive_folder_id"]
-        subfolder_id = get_or_create_subfolder(drive_service, main_folder_id, category_name)
-        media = MediaIoBaseUpload(io.BytesIO(processed_bytes), mimetype='image/jpeg', resumable=False)
-        file = drive_service.files().create(body={'name': filename, 'parents': [subfolder_id]}, media_body=media, fields='id, webViewLink').execute()
-        drive_service.permissions().create(fileId=file.get('id'), body={'type': 'anyone', 'role': 'reader'}).execute()
-        return file.get('webViewLink')
+        creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"])
+        client = storage.Client(credentials=creds, project=creds.project_id)
+        
+        # ⚠️ 注意！下面這行一定要換成你在 GCP 建立的儲存桶英文名稱！
+        bucket_name = "請輸入你的桶子名稱" # <--- 改這裡！！例如 "lumilab-inventory-bucket"
+        
+        bucket = client.bucket(bucket_name) 
+        blob = bucket.blob(f"{category_name}/{filename}")
+        blob.upload_from_string(processed_bytes, content_type="image/jpeg")
+        
+        return blob.public_url
     except Exception as e:
         st.error(f"❌ 照片上傳失敗：{e}")
         return ""
@@ -63,7 +58,6 @@ def get_system_settings(sh):
     SETTING_SHEET_NAME = "⚙️系統設定"
     worksheets = sh.worksheets()
 
-    # 幫你把截圖裡的品項全部塞進來了！
     default_items = [
         "雷射筆", "光學鏡片", "透鏡", "濾光片", "感測器", "電源線", "馬達", "螺絲", "其他",
         "擴大機", "HiFi Steaeo Karaoke擴大機", "喇叭", "數位回音立體聲擴大機", 
