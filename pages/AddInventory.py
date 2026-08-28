@@ -27,7 +27,6 @@ for i, ws in enumerate(display_worksheets):
             input_data = {}
             manual_data = {}
             
-            # 1. 乾淨清爽的下拉選單 (不再出現 ✏️手動輸入 選項)
             for col in header:
                 if col == "照片連結": continue
                 elif col == "品項名稱":
@@ -43,12 +42,12 @@ for i, ws in enumerate(display_worksheets):
                 elif col == "數量":
                     input_data[col] = st.number_input(f"🔢 {col}", min_value=0, value=1, step=1)
                 elif "備註" in col:
-                    q_opt = st.radio(f"⚡ {col}", ["無", "全新正常", "需維修", "零件短缺", "✏️ 手動打字..."], horizontal=True)
-                    input_data[col] = st.text_input(f"✍️ 輸入{col}") if q_opt == "✏️ 手動打字..." else q_opt
+                    # 修正：永遠顯示文字框，若有填寫文字框則優先採用
+                    input_data[f"{col}_radio"] = st.radio(f"⚡ {col}", ["無", "全新正常", "需維修", "零件短缺", "👇 自己打字..."], horizontal=True)
+                    input_data[f"{col}_text"] = st.text_input(f"✍️ 手動輸入{col} (若上方選自己打字，請填寫於此):")
                 else:
                     input_data[col] = st.text_input(f"✍️ {col}")
 
-            # 2. 隱藏式的手動輸入區塊 (點開才看得到)
             with st.expander("➕ 選單裡沒有？點我手動輸入新品項 / 品牌..."):
                 st.caption("💡 只要在這裡打字，系統就會優先儲存你打的內容，並自動加入未來的選單中！")
                 if "品項名稱" in header: manual_data["品項名稱"] = st.text_input("✍️ 新品項名稱:", key=f"m_item_{ws.id}")
@@ -63,7 +62,6 @@ for i, ws in enumerate(display_worksheets):
             if submit:
                 with st.spinner("雲端處理中..."):
                     
-                    # 自動判斷：手動輸入有字就用手動的，沒字就用下拉選單的
                     def get_final(col_name):
                         manual_val = manual_data.get(col_name, "").strip()
                         return manual_val if manual_val else input_data.get(col_name, "")
@@ -74,9 +72,8 @@ for i, ws in enumerate(display_worksheets):
                     final_loc = get_final("存放所在位置")
                     
                     status_key = "設備狀態" if "設備狀態" in input_data else ("狀態" if "狀態" in input_data else "")
-                    final_status = input_data.get(status_key, "") # 狀態通常不手動新增
+                    final_status = input_data.get(status_key, "") 
 
-                    # 寫入新選項到設定表
                     needs_update = False
                     if final_item and final_item not in ITEM_OPTIONS: ITEM_OPTIONS.append(final_item); needs_update = True
                     if final_brand and final_brand not in BRAND_OPTIONS: BRAND_OPTIONS.append(final_brand); needs_update = True
@@ -94,10 +91,8 @@ for i, ws in enumerate(display_worksheets):
                         setting_ws.clear()
                         setting_ws.update([new_df.columns.values.tolist()] + new_df.astype(str).values.tolist())
 
-                    # 照片上傳
                     img_url = upload_image_to_drive(photo.getvalue(), f"{final_item}_{int(time.time())}.jpg", final_item) if photo else ""
 
-                    # 寫入資料
                     row_to_add = []
                     for col in header:
                         if col == "照片連結": row_to_add.append(img_url)
@@ -106,6 +101,13 @@ for i, ws in enumerate(display_worksheets):
                         elif col == "存放區域": row_to_add.append(final_area)
                         elif col == "存放所在位置": row_to_add.append(final_loc)
                         elif col in ["狀態", "設備狀態"]: row_to_add.append(final_status)
+                        elif "備註" in col:
+                            # 判斷邏輯：有打字就用打字的，沒打字就用圓形按鈕的
+                            r_val = input_data.get(f"{col}_radio", "")
+                            t_val = input_data.get(f"{col}_text", "").strip()
+                            if t_val: row_to_add.append(t_val)
+                            elif r_val != "👇 自己打字...": row_to_add.append(r_val)
+                            else: row_to_add.append("")
                         else: row_to_add.append(str(input_data.get(col, "")))
 
                     ws.append_row(row_to_add)
