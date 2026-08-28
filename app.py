@@ -76,33 +76,82 @@ def get_or_create_subfolder(parent_id, folder_name):
         return folder.get('id')
 
 def upload_image_to_drive(file_bytes, filename, category_name):
-    processed_bytes = add_watermark(file_bytes)
-    main_folder_id = st.secrets["drive_folder_id"]
-    subfolder_id = get_or_create_subfolder(main_folder_id, category_name)
-    file_metadata = {'name': filename, 'parents': [subfolder_id]}
-    media = MediaIoBaseUpload(io.BytesIO(processed_bytes), mimetype='image/jpeg', resumable=True)
-    file = drive_service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
-    drive_service.permissions().create(fileId=file.get('id'), body={'type': 'anyone', 'role': 'reader'}).execute()
-    return file.get('webViewLink')
+    try:
+        processed_bytes = add_watermark(file_bytes)
+        main_folder_id = st.secrets["drive_folder_id"]
+        subfolder_id = get_or_create_subfolder(main_folder_id, category_name)
+        file_metadata = {'name': filename, 'parents': [subfolder_id]}
+        media = MediaIoBaseUpload(io.BytesIO(processed_bytes), mimetype='image/jpeg', resumable=False)
+        
+        file = drive_service.files().create(
+            body=file_metadata, media_body=media, fields='id, webViewLink'
+        ).execute()
+        
+        drive_service.permissions().create(
+            fileId=file.get('id'), body={'type': 'anyone', 'role': 'reader'}
+        ).execute()
+        
+        return file.get('webViewLink')
+    except Exception as e:
+        st.error(f"❌ 上傳失敗，詳細原因：{e}")
+        return ""
+
+# ==========================================
+# ⚙️ 系統設定與選單動態讀取
+# ==========================================
+worksheets = sh.worksheets()
+
+# 檢查是否有系統設定分頁，沒有就建立一個
+SETTING_SHEET_NAME = "⚙️系統設定"
+if SETTING_SHEET_NAME not in [ws.title for ws in worksheets]:
+    setting_ws = sh.add_worksheet(title=SETTING_SHEET_NAME, rows=200, cols=5)
+    default_items = [["下拉選單_品項名稱"], ["雷射筆"], ["光學鏡片"], ["透鏡"], ["濾光片"], ["感測器"], ["電源線"], ["馬達"], ["螺絲"], ["其他"]]
+    setting_ws.update(default_items)
+else:
+    setting_ws = sh.worksheet(SETTING_SHEET_NAME)
+
+# 讀取 Google 試算表內的品項清單
+item_col = setting_ws.col_values(1)
+ITEM_OPTIONS = item_col[1:] if len(item_col) > 1 else ["無選項"]
+STATUS_OPTIONS = ["✅ 在庫", "⚠️ 使用中", "🛠️ 送修", "❌ 報廢"]
+
+# 過濾掉設定分頁，不要讓它出現在主畫面的標籤裡
+display_worksheets = [ws for ws in worksheets if ws.title != SETTING_SHEET_NAME]
+display_sheet_names = [ws.title for ws in display_worksheets]
 
 # ==========================================
 # ⚙️ 左側邊欄：系統管理
 # ==========================================
-worksheets = sh.worksheets()
-sheet_names = [ws.title for ws in worksheets]
-
 with st.sidebar:
     st.header("⚙️ 系統管理")
+    
+    # --- 全新功能：新增下拉選單品項 ---
+    with st.expander("🛠️ 新增品項 (下拉選單)"):
+        new_item = st.text_input("輸入新品項名稱:")
+        if st.button("➕ 永久加入選單"):
+            if new_item and new_item not in ITEM_OPTIONS:
+                ITEM_OPTIONS.append(new_item)
+                # 寫回 Google 試算表保存
+                update_list = [["下拉選單_品項名稱"]] + [[x] for x in ITEM_OPTIONS]
+                setting_ws.update(update_list)
+                st.success(f"已新增【{new_item}】！")
+                time.sleep(1)
+                st.rerun()
+            elif new_item in ITEM_OPTIONS:
+                st.warning("這個品項已經在選單裡囉！")
+                
+    st.divider()
+    
     with st.expander("➕ 分頁與欄位管理"):
         new_sheet = st.text_input("新增分頁名稱:")
         if st.button("建立新分頁"):
-            if new_sheet and new_sheet not in sheet_names:
+            if new_sheet and new_sheet not in display_sheet_names and new_sheet != SETTING_SHEET_NAME:
                 new_ws = sh.add_worksheet(title=new_sheet, rows=100, cols=20)
-                new_ws.update([["品項名稱", "數量", "型號", "狀態", "照片連結"]])
+                new_ws.update([["品項名稱", "數量", "型號", "狀態", "備註說明", "照片連結"]])
                 st.rerun()
                 
         st.divider()
-        col_sheet = st.selectbox("選擇要擴充欄位的分頁:", sheet_names)
+        col_sheet = st.selectbox("選擇要擴充欄位的分頁:", display_sheet_names)
         new_col = st.text_input("新增欄位名稱:")
         if st.button("加入欄位"):
             if new_col:
@@ -117,16 +166,13 @@ with st.sidebar:
 # ==========================================
 st.title("📱 品項新增與管理")
 
-ITEM_OPTIONS = ["雷射筆", "光學鏡片", "透鏡", "濾光片", "感測器", "電源線", "馬達", "螺絲", "其他"]
-STATUS_OPTIONS = ["✅ 在庫", "⚠️ 使用中", "🛠️ 送修", "❌ 報廢"]
+tabs = st.tabs(display_sheet_names + ["🌐 總表"])
 
-tabs = st.tabs(sheet_names + ["🌐 總表"])
-
-for i, ws in enumerate(worksheets):
+for i, ws in enumerate(display_worksheets):
     with tabs[i]:
         header = ws.row_values(1)
         if not header:
-            header = ["品項名稱", "數量", "型號", "狀態", "照片連結"]
+            header = ["品項名稱", "數量", "型號", "狀態", "備註說明", "照片連結"]
             ws.update([header])
             
         # --- 區塊 1：超大表單輸入區 ---
@@ -135,23 +181,32 @@ for i, ws in enumerate(worksheets):
         with st.form(key=f"form_{ws.id}", clear_on_submit=True):
             input_data = {}
             
-            # 動態產生輸入框
+            # 動態產生輸入框 (包含數量加減與備註按鈕)
             for col in header:
                 if col == "照片連結":
-                    continue # 照片我們另外放相機按鈕
+                    continue
                 elif col == "品項名稱":
                     input_data[col] = st.selectbox(f"📦 {col}", options=ITEM_OPTIONS)
                 elif col == "狀態":
                     input_data[col] = st.selectbox(f"🚦 {col}", options=STATUS_OPTIONS)
                 elif col == "數量":
-                    input_data[col] = st.text_input(f"🔢 {col} (請輸入數字)")
+                    input_data[col] = st.number_input(f"🔢 {col}", min_value=0, value=1, step=1)
+                elif "備註" in col:
+                    quick_opt = st.radio(
+                        f"⚡ 快速填寫 {col}", 
+                        ["無", "全新正常", "需維修", "零件短缺", "✏️ 手動打字..."], 
+                        horizontal=True
+                    )
+                    if quick_opt == "✏️ 手動打字...":
+                        input_data[col] = st.text_input(f"✍️ 手動輸入{col}")
+                    else:
+                        input_data[col] = quick_opt
                 else:
                     input_data[col] = st.text_input(f"✍️ {col}")
                     
             st.write("---")
             photo = st.camera_input("📷 拍下照片 (選填)")
             
-            # 滿版大按鈕
             submit = st.form_submit_button("🚀 一鍵儲存並上傳", use_container_width=True)
             
             if submit:
@@ -159,12 +214,10 @@ for i, ws in enumerate(worksheets):
                     img_url = ""
                     item_name = input_data.get("品項名稱", "未命名")
                     
-                    # 處理照片上傳
                     if photo:
                         filename = f"{item_name}_{int(time.time())}.jpg"
                         img_url = upload_image_to_drive(photo.getvalue(), filename, category_name=item_name)
                     
-                    # 整理要寫入的資料整列
                     row_to_add = []
                     for col in header:
                         if col == "照片連結":
@@ -172,7 +225,6 @@ for i, ws in enumerate(worksheets):
                         else:
                             row_to_add.append(str(input_data.get(col, "")))
                             
-                    # 直接新增一列到 Google 試算表最下方
                     ws.append_row(row_to_add)
                     st.success("✅ 資料已成功新增！")
                     time.sleep(1.5)
