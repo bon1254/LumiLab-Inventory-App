@@ -7,7 +7,7 @@ st.set_page_config(page_title="系統設定", page_icon="⚙️", layout="wide")
 st.title("⚙️ 系統設定與選項管理")
 
 sh, _ = init_services()
-setting_ws, set_df, _, _, _, display_worksheets = get_system_settings(sh)
+setting_ws, set_df, _, _, _, _, _, display_worksheets = get_system_settings(sh)
 display_sheet_names = [ws.title for ws in display_worksheets]
 
 st.subheader("🛠️ 選單選項管理 (新增/修改/刪除)")
@@ -34,7 +34,7 @@ with col1:
     if st.button("建立分頁"):
         if new_sheet and new_sheet not in display_sheet_names and new_sheet != "⚙️系統設定":
             new_ws = sh.add_worksheet(title=new_sheet, rows=100, cols=20)
-            new_ws.update([["品項名稱", "品牌", "數量", "型號", "狀態", "備註說明", "照片連結"]])
+            new_ws.update([["品項名稱", "品牌", "存放區域", "存放所在位置", "數量", "型號", "設備狀態", "備註說明", "照片連結"]])
             st.success(f"已建立分頁：{new_sheet}")
             time.sleep(1)
             st.rerun()

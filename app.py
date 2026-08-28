@@ -8,7 +8,7 @@ st.caption("👈 請點擊左側【>】展開選單，切換至『AddInventory (
 
 try:
     sh, _ = init_services()
-    _, _, _, _, _, display_worksheets = get_system_settings(sh)
+    _, _, _, _, _, _, _, display_worksheets = get_system_settings(sh)
 except Exception as e:
     st.error("⚠️ 無法連線至雲端系統，請檢查設定。")
     st.stop()
