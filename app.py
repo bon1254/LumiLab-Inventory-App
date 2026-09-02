@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import gspread
 from backend import init_services, get_system_settings
 
 # 拔掉 page_icon，並把標題的圖示拿掉
