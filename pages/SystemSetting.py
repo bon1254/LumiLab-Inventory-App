@@ -35,21 +35,22 @@ with col1:
     st.markdown("#### 新增分頁")
     new_sheet = st.text_input("輸入新分頁名稱:")
     if st.button("建立分頁"):
-        # ⚠️ 注意：這裡的 "⚙️系統設定" 是用來比對 Google 試算表底層的防呆邏輯，請保持原樣！
         if new_sheet and new_sheet not in display_sheet_names and new_sheet != "⚙️系統設定":
             new_ws = sh.add_worksheet(title=new_sheet, rows=100, cols=20)
             new_ws.update([["品項名稱", "品牌", "存放區域", "存放所在位置", "數量", "型號", "設備狀態", "備註說明", "照片連結"]])
             st.success(f"已建立分頁：{new_sheet}")
+            
+            # 👉 操作成功後，才清除快取！
             st.cache_resource.clear()
+            st.cache_data.clear()
+            
             time.sleep(1)
             st.rerun()
 
 with col2:
     st.markdown("#### 刪除分頁")
-    # 加上 key 避免跟旁邊的 selectbox 衝突
     sheet_to_delete = st.selectbox("選擇要刪除的分頁:", display_sheet_names, key="del_sheet_select") if display_sheet_names else st.empty()
     
-    # 刪除按鈕加上 type="primary" 讓它變成紅色醒目按鈕，避免誤按
     if st.button("刪除分頁", type="primary"):
         if sheet_to_delete:
             import gspread
@@ -57,7 +58,11 @@ with col2:
                 ws_target = sh.worksheet(sheet_to_delete)
                 sh.del_worksheet(ws_target)
                 st.success(f"已刪除分頁：{sheet_to_delete}")
+                
+                # 👉 操作成功後，才清除快取！
                 st.cache_resource.clear()
+                st.cache_data.clear()
+                
                 time.sleep(1)
                 st.rerun()
             except gspread.exceptions.WorksheetNotFound:
@@ -67,7 +72,6 @@ with col2:
 
 with col3:
     st.markdown("#### 新增欄位")
-    # 加上 key 避免衝突
     col_sheet = st.selectbox("選擇要擴充的分頁:", display_sheet_names, key="add_col_select") if display_sheet_names else st.empty()
     new_col = st.text_input("輸入新欄位名稱:")
     if st.button("加入欄位"):
@@ -77,5 +81,10 @@ with col3:
             if new_col not in header:
                 ws.update_cell(1, len(header) + 1, new_col)
                 st.success(f"已加入欄位：{new_col}")
+                
+                # 👉 操作成功後，才清除快取！
+                st.cache_resource.clear()
+                st.cache_data.clear()
+                
                 time.sleep(1)
                 st.rerun()
