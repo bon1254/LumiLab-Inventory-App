@@ -1,103 +1,50 @@
 import streamlit as st
-import pandas as pd
-import gspread
-import io
-from google.cloud import storage
+from google.cloud import firestore, storage
 from google.oauth2.service_account import Credentials
-from datetime import datetime
-from PIL import Image, ImageDraw, ImageFont
+import time
 
-@st.cache_resource(ttl=600)
+@st.cache_resource
 def init_services():
-    # 初始化 Google 試算表
-    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
-    gc = gspread.authorize(creds)
-    sh = gc.open_by_key(st.secrets["spreadsheet_id"])
-    return sh, None # 回傳 None 是為了相容舊程式碼的解構
+    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"])
+    db = firestore.Client(credentials=creds, project=creds.project_id)
+    storage_client = storage.Client(credentials=creds, project=creds.project_id)
+    return db, storage_client
 
-def add_watermark(image_bytes):
-    img = Image.open(io.BytesIO(image_bytes))
-    img.thumbnail((1280, 1280)) 
-    draw = ImageDraw.Draw(img)
-    try: font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
-    except: font = ImageFont.load_default()
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    try:
-        bbox = draw.textbbox((0, 0), current_time, font=font)
-        text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    except:
-        text_w, text_h = 200, 20
-    width, height = img.size
-    x, y = width - text_w - 20, height - text_h - 20
-    draw.rectangle((x - 10, y - 10, x + text_w + 10, y + text_h + 10), fill="black")
-    draw.text((x, y), current_time, font=font, fill="white")
-    output = io.BytesIO()
-    img.save(output, format="JPEG", quality=85)
-    return output.getvalue()
+def get_system_settings(db):
+    doc_ref = db.collection("system").document("settings")
+    doc = doc_ref.get()
+    
+    default_settings = {
+        "ITEM_OPTIONS": ["雷射筆", "投影機", "延伸器"],
+        "BRAND_OPTIONS": ["無品牌或未知", "Epson", "BenQ"],
+        "AREA_OPTIONS": ["A區", "B區", "C區"],
+        "LOC_OPTIONS": ["架子1", "架子2", "抽屜"],
+        "STATUS_OPTIONS": ["在庫", "借出", "維修中"],
+        "CATEGORIES": ["訊號延伸器", "投影機"]
+    }
+    
+    if doc.exists:
+        data = doc.to_dict()
+        for key in default_settings:
+            if key not in data:
+                data[key] = default_settings[key]
+        return data
+    else:
+        doc_ref.set(default_settings)
+        return default_settings
 
-def upload_image_to_drive(file_bytes, filename, category_name):
+def save_system_settings(db, new_data):
+    doc_ref = db.collection("system").document("settings")
+    doc_ref.set(new_data, merge=True)
+
+def upload_image_to_storage(file_bytes, filename, category_name):
     try:
-        processed_bytes = add_watermark(file_bytes)
-        creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"])
-        client = storage.Client(credentials=creds, project=creds.project_id)
-        
-        # ⚠️ 注意！下面這行一定要換成你在 GCP 建立的儲存桶英文名稱！
-        bucket_name = "請輸入你的桶子名稱" # <--- 改這裡！！例如 "lumilab-inventory-bucket"
-        
-        bucket = client.bucket(bucket_name) 
+        _, storage_client = init_services()
+        bucket_name = st.secrets["gcp_service_account"].get("bucket_name", "your-bucket-name")
+        bucket = storage_client.bucket(bucket_name)
         blob = bucket.blob(f"{category_name}/{filename}")
-        blob.upload_from_string(processed_bytes, content_type="image/jpeg")
-        
+        blob.upload_from_string(file_bytes, content_type="image/jpeg")
         return blob.public_url
     except Exception as e:
-        st.error(f"❌ 照片上傳失敗：{e}")
+        st.error(f"照片上傳失敗：{e}")
         return ""
-
-def get_system_settings(sh):
-    SETTING_SHEET_NAME = "⚙️系統設定"
-    worksheets = sh.worksheets()
-
-    default_items = [
-        "投影機", "投影機鏡頭", "HDMI線", "HDMI to DP線", "HDMI to DP轉接頭", "電源線", "螢幕", "鍵盤", "滑鼠",
-        "擴大機", "HiFi Steaeo Karaoke擴大機", "喇叭", "數位回音立體聲擴大機", 
-        "Professional Karaoke 擴大機", "Stereo Karaoke擴大機", "單片式畫框喇叭",
-        "訊號延伸器", "變壓器", "85吋電視", "55吋電視", 
-        "43型4K低藍光HDR智慧聯網顯示器", "40型低藍光LED顯示器", "32吋 HD 液晶顯示器"
-    ]
-    default_brands = ["無品牌或未知", "Acer 宏碁", "ASUS 華碩", "Digital Projection 數字投影科技", "Dotation 達道", "Genuine 捷元", "i-COOLTW", "JY 聚奕工業", "LITEON 光寶科技", "Logitech 羅技", "MSI 微星", "TPLink 普聯技術", "Zyxel 兆勤科技", "DIVA 惠威", "JCT", "JWE", "LINDY 林帝", "DAYEN 大影", "MACHI 金典範", "B&W 寶華韋健", "TiKAudio 翊景", "EPSON 愛普森", "ATEN 宏正自動科技", "Litemax 晶達光電", "SAMPO 聲寶", "CHIMEI 奇美", "Haier 海爾", "UniSync 優尼森克", "WAVEST 威士波", "POLYWELL 寶利威爾", "Kolin 歌林", "Mayka 明家瑋崙", "WEITIEN 威電", "JODEWAY 久威电子", "IKEA 宜家家居", "BARCORNA", "LEKO 格雷"]
-    default_areas = ["無存放區域", "1號航空箱", "2號航空箱", "3號航空箱", "4號航空箱", "5號航空箱", "吊架航空箱", "機房"]
-    default_locs = ["Elaine保管中", "光敘所倉庫", "翡冷翠倉庫", "高雄駁二P3_世界界古文明展場", "台北科教館_比薩大學動物展"]
-    default_statuses = ["故障中等維修", "維修中", "無法使用", "使用中", "無使用", "非案子外借中", "已賣出", "翡冷翠保管"]
-
-    if SETTING_SHEET_NAME not in [ws.title for ws in worksheets]:
-        mlen = max(len(default_items), len(default_brands), len(default_areas), len(default_locs), len(default_statuses))
-        def pad(lst): return lst + [""] * (mlen - len(lst))
-        
-        setting_ws = sh.add_worksheet(title=SETTING_SHEET_NAME, rows=mlen + 20, cols=5)
-        new_set_df = pd.DataFrame({
-            "下拉選單_品項名稱": pad(default_items),
-            "下拉選單_品牌": pad(default_brands),
-            "下拉選單_存放區域": pad(default_areas),
-            "下拉選單_存放所在位置": pad(default_locs),
-            "下拉選單_設備狀態": pad(default_statuses)
-        })
-        setting_ws.update([new_set_df.columns.values.tolist()] + new_set_df.astype(str).values.tolist())
-    else:
-        setting_ws = sh.worksheet(SETTING_SHEET_NAME)
-        
-    set_data = setting_ws.get_all_records()
-    set_df = pd.DataFrame(set_data) if set_data else pd.DataFrame()
-
-    def get_opt(col_name):
-        return [str(x) for x in set_df[col_name].dropna().tolist() if str(x).strip() != ""] if col_name in set_df.columns else []
-
-    ITEM_OPTIONS = get_opt("下拉選單_品項名稱")
-    BRAND_OPTIONS = get_opt("下拉選單_品牌")
-    AREA_OPTIONS = get_opt("下拉選單_存放區域")
-    LOC_OPTIONS = get_opt("下拉選單_存放所在位置")
-    STATUS_OPTIONS = get_opt("下拉選單_設備狀態")
-    
-    display_worksheets = [ws for ws in worksheets if ws.title != SETTING_SHEET_NAME]
-    
-    return setting_ws, set_df, ITEM_OPTIONS, BRAND_OPTIONS, AREA_OPTIONS, LOC_OPTIONS, STATUS_OPTIONS, display_worksheets
