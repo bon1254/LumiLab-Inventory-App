@@ -3,7 +3,7 @@ import pandas as pd
 import time
 from backend import init_services, get_system_settings
 
-# 拔掉 page_icon
+# 拔掉 page_icon，純文字專業風格
 st.set_page_config(page_title="系統設定", layout="wide")
 st.title("系統設定與選項管理")
 
@@ -11,12 +11,10 @@ sh, _ = init_services()
 setting_ws, set_df, _, _, _, _, _, display_worksheets = get_system_settings(sh)
 display_sheet_names = [ws.title for ws in display_worksheets]
 
-# 移除標題圖示
 st.subheader("選單選項管理 (新增/修改/刪除)")
 st.caption("直接在下方表格修改、刪除(勾選按Delete)或新增列。完成後請按儲存。")
 edited_set_df = st.data_editor(set_df, num_rows="dynamic", use_container_width=True)
 
-# 移除按鈕與提示圖示
 if st.button("儲存選單設定"):
     setting_ws.clear()
     edited_set_df.replace("", pd.NA, inplace=True)
@@ -28,9 +26,10 @@ if st.button("儲存選單設定"):
     st.rerun()
 
 st.divider()
-# 移除標題圖示
-st.subheader("分頁與欄位擴充")
-col1, col2 = st.columns(2)
+st.subheader("分頁與欄位管理")
+
+# 改成三欄式排版
+col1, col2, col3 = st.columns(3)
 
 with col1:
     st.markdown("#### 新增分頁")
@@ -41,12 +40,35 @@ with col1:
             new_ws = sh.add_worksheet(title=new_sheet, rows=100, cols=20)
             new_ws.update([["品項名稱", "品牌", "存放區域", "存放所在位置", "數量", "型號", "設備狀態", "備註說明", "照片連結"]])
             st.success(f"已建立分頁：{new_sheet}")
+            st.cache_resource.clear()
             time.sleep(1)
             st.rerun()
 
 with col2:
+    st.markdown("#### 刪除分頁")
+    # 加上 key 避免跟旁邊的 selectbox 衝突
+    sheet_to_delete = st.selectbox("選擇要刪除的分頁:", display_sheet_names, key="del_sheet_select") if display_sheet_names else st.empty()
+    
+    # 刪除按鈕加上 type="primary" 讓它變成紅色醒目按鈕，避免誤按
+    if st.button("刪除分頁", type="primary"):
+        if sheet_to_delete:
+            import gspread
+            try:
+                ws_target = sh.worksheet(sheet_to_delete)
+                sh.del_worksheet(ws_target)
+                st.success(f"已刪除分頁：{sheet_to_delete}")
+                st.cache_resource.clear()
+                time.sleep(1)
+                st.rerun()
+            except gspread.exceptions.WorksheetNotFound:
+                st.warning(f"找不到「{sheet_to_delete}」分頁，可能已被刪除！")
+            except Exception as e:
+                st.error(f"發生錯誤：{e}")
+
+with col3:
     st.markdown("#### 新增欄位")
-    col_sheet = st.selectbox("選擇要擴充的分頁:", display_sheet_names) if display_sheet_names else st.empty()
+    # 加上 key 避免衝突
+    col_sheet = st.selectbox("選擇要擴充的分頁:", display_sheet_names, key="add_col_select") if display_sheet_names else st.empty()
     new_col = st.text_input("輸入新欄位名稱:")
     if st.button("加入欄位"):
         if new_col and display_sheet_names:
